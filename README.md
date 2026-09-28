@@ -1,1 +1,3 @@
-# AWS_reddit_Data_Pipeline
+# Walmart End-to-End Data Engineering Pipeline
+
+An enterprise-grade Lakehouse data pipeline built using Apache Airflow, dbt, Databricks (Delta Lake), and Docker. This project simulates an end-to-end modern data engineering workflow by ingesting relational and semi-structured operational data, processing it through a Medallion Architecture (Bronze $\rightarrow$ Silver $\rightarrow$ Gold), and delivering an optimized One Big Table (OBT) and Star Schema for downstream analytics.
