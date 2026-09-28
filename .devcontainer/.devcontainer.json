@@ -1,0 +1,23 @@
+{
+  "name": "Walmart Data Engineering Workspace",
+  "image": "mcr.microsoft.com/devcontainers/python:3.10-bullseye",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "version": "latest",
+      "enableNonRootDocker": "true",
+      "moby": "true"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "dbt-labs.dbt-power-user",
+        "eamodio.gitlens",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  },
+  "forwardPorts": [8080],
+  "postCreateCommand": "pip install --upgrade pip && pip install dbt-databricks apache-airflow"
+}

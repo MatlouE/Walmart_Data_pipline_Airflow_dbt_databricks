@@ -1,0 +1,13 @@
+# Orchestration & Transformations
+apache-airflow==2.8.1
+dbt-core~=1.7.0
+dbt-databricks~=1.7.0
+dbt-postgres~=1.7.0
+
+# Data Processing & Database Drivers
+pyspark==3.5.0
+psycopg2-binary==2.9.9
+pandas==2.2.0
+
+# Databricks Integration
+databricks-sdk==0.18.0
