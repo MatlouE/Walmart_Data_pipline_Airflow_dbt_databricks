@@ -1,3 +1,4 @@
+-- Data definition for the tables
 
 CREATE TABLE customers (
     customer_id BIGINT PRIMARY KEY,
@@ -72,3 +73,6 @@ CREATE TABLE order_items (
     updated_timestamp TIMESTAMP,
     is_active CHAR(1)
 );
+
+-- executing the ddl to the walmart_db in postgres
+-- docker exec -i walmart_source_db psql -U postgres -d walmart_db < walmart_dataset/ddl/walmart_schema.sql
