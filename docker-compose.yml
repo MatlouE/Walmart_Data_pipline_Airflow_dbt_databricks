@@ -1,74 +1,78 @@
-version: '3.8'
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.8.1-python3.10
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment:
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@postgres-airflow:5432/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
 
 services:
-  # Source PostgreSQL DB (Replaces Ghost)
   walmart-source-db:
     image: postgres:15
     container_name: walmart_source_db
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: walmart_db
+      POSTGRES_USER: ${SOURCE_DB_USER}
+      POSTGRES_PASSWORD: ${SOURCE_DB_PASSWORD}
+      POSTGRES_DB: ${SOURCE_DB_NAME}
     ports:
       - "5433:5432"
     volumes:
       - walmart_source_data:/var/lib/postgresql/data
+      - ./walmart_dataset/ddl:/docker-entrypoint-initdb.d
       - ./walmart_dataset:/walmart_dataset
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SOURCE_DB_USER} -d ${SOURCE_DB_NAME}"]
+      interval: 5s
+      retries: 10
 
-  # Airflow Metadata DB
   postgres-airflow:
     image: postgres:15
     container_name: postgres_airflow
     environment:
       POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow_password
+      POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
       POSTGRES_DB: airflow
-    ports:
-      - "5432:5432"
     volumes:
       - airflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      retries: 10
 
-  # Airflow Webserver
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow_init
+    command: >
+      bash -c "airflow db migrate &&
+      (airflow users create --username admin --password ${AIRFLOW_ADMIN_PASSWORD}
+      --firstname Admin --lastname User --role Admin --email admin@example.com || true)"
+    depends_on:
+      postgres-airflow:
+        condition: service_healthy
+
   airflow-webserver:
-    image: apache/airflow:2.8.1-python3.10
+    <<: *airflow-common
     container_name: airflow_webserver
     command: webserver
     ports:
       - "8080:8080"
-    environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow_password@postgres-airflow:5432/airflow
-      - AIRFLOW__CORE__FERNET_KEY=46ExTH231936166164213038634125828456184=
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./dbt_walmart:/opt/airflow/dbt_walmart
     depends_on:
-      - postgres-airflow
-      - walmart-source-db
-    entrypoint: >
-      /bin/bash -c "
-      airflow db init &&
-      airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true;
-      airflow webserver"
+      airflow-init:
+        condition: service_completed_successfully
 
-  # Airflow Scheduler
   airflow-scheduler:
-    image: apache/airflow:2.8.1-python3.10
+    <<: *airflow-common
     container_name: airflow_scheduler
     command: scheduler
-    environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow_password@postgres-airflow:5432/airflow
-      - AIRFLOW__CORE__FERNET_KEY=46ExTH231936166164213038634125828456184=
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-    volumes:
-      - ./dags:/opt/airflow/dags
-      - ./dbt_walmart:/opt/airflow/dbt_walmart
     depends_on:
-      - postgres-airflow
-      - walmart-source-db
+      airflow-init:
+        condition: service_completed_successfully
 
 volumes:
   walmart_source_data:
   airflow_postgres_data:
+  
