@@ -14,7 +14,9 @@
         "ms-python.python",
         "dbt-labs.dbt-power-user",
         "eamodio.gitlens",
-        "ms-azuretools.vscode-docker"
+        "ms-azuretools.vscode-docker",
+        "mtxr.sqltools",
+        "mtxr.sqltools-driver-pg"
       ]
     }
   },

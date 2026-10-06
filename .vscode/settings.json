@@ -1,0 +1,14 @@
+{
+  "sqltools.connections": [
+    {
+      "name": "Walmart Source PostgreSQL",
+      "driver": "PostgreSQL",
+      "server": "localhost",
+      "port": 5433,
+      "database": "walmart_db",
+      "username": "postgres",
+      "askForPassword": true,
+      "previewLimit": 50
+    }
+  ]
+}
