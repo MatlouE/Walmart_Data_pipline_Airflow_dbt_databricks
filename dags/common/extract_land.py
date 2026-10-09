@@ -30,7 +30,7 @@ EPOCH = datetime(1970, 1, 1)  # "never extracted": first run pulls everything
 CATALOG = os.environ.get("DATABRICKS_CATALOG", "workspace")
 VOLUME_ROOT = f"/Volumes/{CATALOG}/bronze/landing"
 
-
+#connect to postgres
 def pg_connect():
     # Inside Docker Compose the host is the service name and the port is the
     # container port (5432). From the codespace shell it is localhost:5433.
