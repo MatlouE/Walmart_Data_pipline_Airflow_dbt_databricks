@@ -1,0 +1,22 @@
+# Secrets: never send these to the builder
+.env
+.env.*
+!.env.example
+
+# Local environments and VCS
+.venv
+.git
+
+# Runtime output and caches
+logs/
+**/__pycache__
+**/*.pyc
+.ipynb_checkpoints
+
+# Data the image doesn't need (the source DB mounts it separately)
+walmart_dataset/
+
+# Editor and dbt artifacts (dbt is coming)
+.vscode/
+target/
+dbt_packages/

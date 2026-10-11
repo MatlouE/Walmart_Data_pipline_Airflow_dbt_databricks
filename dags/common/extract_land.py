@@ -42,7 +42,9 @@ def pg_connect():
         password=os.environ["SOURCE_PG_PASSWORD"],
     )
 
-
+#a control table is used to store the watermark for each table, so that we know what rows have already been extracted and landed. This allows us to only extract and land the rows that have changed since the last run.
+#a bookkeeper for data audiiting and tracking 
+#the watermark ensures that each  run extracts and lands only the rows that have changed since the last run.
 def ensure_control_table(cur):
     cur.execute("CREATE SCHEMA IF NOT EXISTS etl_control")
     cur.execute(
@@ -103,16 +105,22 @@ def extract_and_land(table, run_id=None):
 
         new_watermark = max(r["updated_timestamp"] for r in rows)
 
+    #stores data in memory as parquet file before uploading to databricks volume
         buf = io.BytesIO()
+        # Write the changed rows to a Parquet file in memory
+        #key note observing here is that the rows are a list of dictionaries, which is compatible with pyarrow's from_pylist function
         pq.write_table(pa.Table.from_pylist(rows), buf)
         buf.seek(0)
 
         # Imported here so the Postgres half of this module works without Databricks installed.
         from databricks.sdk import WorkspaceClient
 
+
+        #each run will load a new parquet file, of all changes taking place in the tables data
         path = f"{VOLUME_ROOT}/{table}/{table}_{run_id}.parquet"
         WorkspaceClient().files.upload(path, buf, overwrite=True)
 
+        #only after the upload do we advance the watermark, so that if this task is retried it will re-extract the same rows and overwrite the same file
         with conn.cursor() as cur:
             set_watermark(cur, table, new_watermark, len(rows))
         conn.commit()

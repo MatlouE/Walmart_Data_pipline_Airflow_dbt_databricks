@@ -1,11 +1,27 @@
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.8.1-python3.10
+  build: .
+  image: walmart-airflow:2.8.1
   user: "${AIRFLOW_UID:-50000}:0"
   environment:
+    # --- Airflow core ---
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${AIRFLOW_DB_PASSWORD}@postgres-airflow:5432/airflow
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
     AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__SCHEDULER__CATCHUP_BY_DEFAULT: "False"   # no surprise backfills unless a DAG asks for them
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_WEBSERVER_SECRET_KEY}   # fixed key: stable UI sessions across restarts
+
+    # --- Source Postgres (inside the compose network: service name + CONTAINER port) ---
+    SOURCE_PG_HOST: walmart-source-db
+    SOURCE_PG_PORT: "5432"
+    SOURCE_PG_DB: ${SOURCE_DB_NAME}
+    SOURCE_PG_USER: ${SOURCE_DB_USER}
+    SOURCE_PG_PASSWORD: ${SOURCE_DB_PASSWORD}
+
+    # --- Databricks (read by WorkspaceClient() and extract_land.py) ---
+    DATABRICKS_HOST: ${DATABRICKS_HOST}
+    DATABRICKS_TOKEN: ${DATABRICKS_TOKEN}
+    DATABRICKS_CATALOG: ${DATABRICKS_CATALOG:-workspace}
   volumes:
     - ./dags:/opt/airflow/dags
     - ./logs:/opt/airflow/logs
@@ -14,16 +30,17 @@ services:
   walmart-source-db:
     image: postgres:15
     container_name: walmart_source_db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${SOURCE_DB_USER}
       POSTGRES_PASSWORD: ${SOURCE_DB_PASSWORD}
       POSTGRES_DB: ${SOURCE_DB_NAME}
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"   # host-side access only (for load_data.py and psql from the codespace)
     volumes:
       - walmart_source_data:/var/lib/postgresql/data
+      # Init scripts run ONLY when the data volume is empty (first start or after `down -v`)
       - ./walmart_dataset/ddl:/docker-entrypoint-initdb.d
-      - ./walmart_dataset:/walmart_dataset
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${SOURCE_DB_USER} -d ${SOURCE_DB_NAME}"]
       interval: 5s
@@ -32,6 +49,7 @@ services:
   postgres-airflow:
     image: postgres:15
     container_name: postgres_airflow
+    restart: unless-stopped
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: ${AIRFLOW_DB_PASSWORD}
@@ -58,8 +76,14 @@ services:
     <<: *airflow-common
     container_name: airflow_webserver
     command: webserver
+    restart: unless-stopped
     ports:
       - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
     depends_on:
       airflow-init:
         condition: service_completed_successfully
@@ -68,11 +92,18 @@ services:
     <<: *airflow-common
     container_name: airflow_scheduler
     command: scheduler
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --hostname \"$${HOSTNAME}\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
     depends_on:
       airflow-init:
         condition: service_completed_successfully
+      walmart-source-db:
+        condition: service_healthy   # tasks run inside this container and query the source DB
 
 volumes:
   walmart_source_data:
   airflow_postgres_data:
-  

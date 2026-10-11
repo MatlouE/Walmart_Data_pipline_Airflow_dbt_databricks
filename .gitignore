@@ -1,9 +1,29 @@
+# Secrets
 .env
+.env.*
+!.env.example
+profiles.yml
+*.pem
+*.key
+
+# Python
 .venv/
 __pycache__/
 *.pyc
+.ipynb_checkpoints/
+
+# Runtime output
 logs/
+*.log
+
+# dbt
 target/
 dbt_packages/
-profiles.yml
+
+# Airflow (only if run outside Docker)
+airflow.cfg
+airflow.db
+webserver_config.py
+
+# OS
 .DS_Store

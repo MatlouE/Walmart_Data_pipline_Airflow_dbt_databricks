@@ -1,13 +1,15 @@
-# Orchestration & Transformations
-apache-airflow==2.8.1
-dbt-core~=1.7.0
-dbt-databricks~=1.7.0
-dbt-postgres~=1.7.0
+# One file for both the local .venv and the Airflow image (see Dockerfile).
 
-# Data Processing & Database Drivers
-pyspark==3.5.0
+# Rules for keeping it that way:
+#   - we dont install apache-airflow here since it's already in the base image
+#   - dbt is NOT included yet. It conflicts easily with Airflow's pinned
+#     dependencies
+# Source Postgres access (load_data.py, extract_land.py)
 psycopg2-binary==2.9.9
-pandas==2.2.0
 
-# Databricks Integration
-databricks-sdk==0.18.0
+# Parquet files for the landing Volume (extract_land.py)
+pyarrow==14.0.2            # keep close to your local .venv: pip show pyarrow
+
+# Databricks (setup_bronze.py, extract_land.py)
+databricks-sdk==0.147.0
+python-dotenv==1.0.1       # setup_bronze.py loads .env
