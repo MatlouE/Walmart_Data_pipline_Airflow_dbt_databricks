@@ -8,7 +8,10 @@ Flow per table:
 
 Step 4 happening last makes the task safe to retry: if it dies after the upload
 but before the watermark moves, the retry re-extracts the same rows and
-overwrites the same file (the file name comes from the run id, not the clock).
+overwrites the same file (the file name comes from the run label, not the clock).
+
+In Airflow, init_control_table runs once before the parallel extract tasks so they
+never race to create the control table.
 
 Run standalone from the codespace (host side of the Docker port mapping):
     SOURCE_PG_HOST=localhost SOURCE_PG_PORT=5433 python dags/common/extract_land.py customers
@@ -20,8 +23,6 @@ from datetime import datetime, timezone
 
 import psycopg2
 import psycopg2.extras
-import pyarrow as pa
-import pyarrow.parquet as pq
 from psycopg2 import sql
 
 TABLES = ["customers", "stores", "products", "employees", "orders", "order_items"]
@@ -30,7 +31,7 @@ EPOCH = datetime(1970, 1, 1)  # "never extracted": first run pulls everything
 CATALOG = os.environ.get("DATABRICKS_CATALOG", "workspace")
 VOLUME_ROOT = f"/Volumes/{CATALOG}/bronze/landing"
 
-#connect to postgres
+
 def pg_connect():
     # Inside Docker Compose the host is the service name and the port is the
     # container port (5432). From the codespace shell it is localhost:5433.
@@ -42,9 +43,7 @@ def pg_connect():
         password=os.environ["SOURCE_PG_PASSWORD"],
     )
 
-#a control table is used to store the watermark for each table, so that we know what rows have already been extracted and landed. This allows us to only extract and land the rows that have changed since the last run.
-#a bookkeeper for data audiiting and tracking 
-#the watermark ensures that each  run extracts and lands only the rows that have changed since the last run.
+
 def ensure_control_table(cur):
     cur.execute("CREATE SCHEMA IF NOT EXISTS etl_control")
     cur.execute(
@@ -57,6 +56,16 @@ def ensure_control_table(cur):
         )
         """
     )
+
+
+def init_control_table():
+    """Standalone wrapper so Airflow can run the setup as its own task."""
+    conn = pg_connect()
+    try:
+        with conn, conn.cursor() as cur:  # commits on success, rolls back on error
+            ensure_control_table(cur)
+    finally:
+        conn.close()
 
 
 def get_watermark(cur, table):
@@ -79,15 +88,15 @@ def set_watermark(cur, table, watermark, n_rows):
     )
 
 
-def extract_and_land(table, run_id=None):
+def extract_and_land(table, run_label=None):
     if table not in TABLES:  # table names go into SQL, so whitelist them
         raise ValueError(f"unknown table: {table}")
-    run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    run_label = run_label or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
 
     conn = pg_connect()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            ensure_control_table(cur)
+            ensure_control_table(cur)  # no-op once init_control_table has run; keeps standalone runs working
             conn.commit()
 
             watermark = get_watermark(cur, table)
@@ -105,22 +114,20 @@ def extract_and_land(table, run_id=None):
 
         new_watermark = max(r["updated_timestamp"] for r in rows)
 
-    #stores data in memory as parquet file before uploading to databricks volume
+        # Imported here, not at module level: the scheduler re-imports DAG files constantly,
+        # and a missing package should fail this task, not break the whole DAG.
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
         buf = io.BytesIO()
-        # Write the changed rows to a Parquet file in memory
-        #key note observing here is that the rows are a list of dictionaries, which is compatible with pyarrow's from_pylist function
         pq.write_table(pa.Table.from_pylist(rows), buf)
         buf.seek(0)
 
-        # Imported here so the Postgres half of this module works without Databricks installed.
         from databricks.sdk import WorkspaceClient
 
-
-        #each run will load a new parquet file, of all changes taking place in the tables data
-        path = f"{VOLUME_ROOT}/{table}/{table}_{run_id}.parquet"
+        path = f"{VOLUME_ROOT}/{table}/{table}_{run_label}.parquet"
         WorkspaceClient().files.upload(path, buf, overwrite=True)
 
-        #only after the upload do we advance the watermark, so that if this task is retried it will re-extract the same rows and overwrite the same file
         with conn.cursor() as cur:
             set_watermark(cur, table, new_watermark, len(rows))
         conn.commit()
