@@ -107,7 +107,8 @@ def extract_and_land(table, run_label=None):
                 (watermark,),
             )
             rows = cur.fetchall()
-
+            conn.commit()
+            
         if not rows:
             print(f"[{table}] no changes since {watermark}; nothing to land")
             return None
